@@ -1,0 +1,42 @@
+from azure.cognitiveservices.vision.computervision import ComputerVisionClient
+from azure.cognitiveservices.vision.computervision.models import OperationStatusCodes
+from msrest.authentication import CognitiveServicesCredentials
+import os
+from dotenv import load_dotenv
+from pathlib import Path
+
+# Carregar as variáveis de ambiente
+load_dotenv()
+
+# Configurações
+endpoint = os.getenv("AZURE_CV_ENDPOINT")
+key = os.getenv("AZURE_CV_KEY")
+computervision_client = ComputerVisionClient(endpoint, CognitiveServicesCredentials(key))
+
+# Pasta com as imagens
+input_dir = Path("inputs")
+output_dir = Path("output")
+
+# OCR nas imagens
+for img_path in input_dir.glob("*"):
+    print(f"Processando {img_path.name}")
+    with open(img_path, "rb") as image_stream:
+        ocr_result = computervision_client.read_in_stream(image_stream, raw=True)
+        operation_location = ocr_result.headers["Operation-Location"]
+        operation_id = operation_location.split("/")[-1]
+
+        while True:
+            result = computervision_client.get_read_result(operation_id)
+            if result.status not in ['notStarted', 'running']:
+                break
+
+        if result.status == OperationStatusCodes.succeeded:
+            lines = []
+            for page in result.analyze_result.read_results:
+                for line in page.lines:
+                    lines.append(line.text)
+
+            # Salvar resultado
+            output_file = output_dir / f"{img_path.stem}_ocr.txt"
+            with open(output_file, "w", encoding="utf-8") as f:
+                f.write("\n".join(lines))
